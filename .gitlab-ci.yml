@@ -1,0 +1,127 @@
+stages:
+    - install
+    - build
+    - dockerbuildpush
+    - deploy
+
+variables:
+    NODE_ENV: test
+    NODE_OPTIONS: "--max-old-space-size=4096"
+    UV_THREADPOOL_SIZE: "128"
+    DOCKER_IMAGE_BACK: "$DOCKER_USER/basicserver"
+    DOCKER_IMAGE_FRONT: "$DOCKER_USER/basicclient"
+
+install:
+    stage: install
+    image: node:18-slim
+    script:
+        - echo "Installing dependencies..."
+        - npm cache clean --force
+        - cd server && npm ci && cd ../client && npm ci
+    artifacts:
+        paths:
+            - server/node_modules
+            - client/node_modules
+
+build:
+    stage: build
+    image: node:18-slim
+    script:
+        - echo "Building project..."
+        - cd server && npm run build && cd ../client && npm run build
+    dependencies:
+        - install
+    artifacts:
+        paths:
+            - server/dist
+            - client/dist
+
+dockerbuildpush:
+    stage: dockerbuildpush
+    image: docker:24.0.2
+    services:
+        - docker:24.0.2-dind
+    before_script:
+        - export DOCKER_HOST=tcp://docker:2375
+        - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+    script:
+        - echo "Building and pushing Docker images..."
+        - docker build -t $DOCKER_IMAGE_BACK:latest ./server
+        - docker build --build-arg VITE_BASEURL=$VITE_BASEURL -t $DOCKER_IMAGE_FRONT:latest ./client
+        - docker push $DOCKER_IMAGE_BACK:latest
+        - docker push $DOCKER_IMAGE_FRONT:latest
+
+deploy:
+    stage: deploy
+    image: alpine/curl:latest
+    script:
+        - echo "Deploying application..."
+        - curl --location --request POST "$VITE_BASEURL/api/auth/verify"
+
+# stages:
+#     - install
+#     - build
+#     - dockerbuildpush
+#     - deploy 
+# variables:
+#     NODE_ENV: test
+#     DOCKER_IMAGE_BACK: "$DOCKER_USER/basicserver"
+#     DOCKER_IMAGE_FRONT: "$DOCKER_USER/basicclint"
+# install:
+#     stage: install
+#     image: node:18-alpine
+#     script:
+#         - echo "Installed dependencies..."
+#         - cd server
+#         - npm ci
+#         - cd ../client
+#         - npm ci
+#     artifacts:
+#         paths:
+#             - server/node_modules
+#             - client/node_modules
+# # run tests
+# # test:
+# #     stage: test
+# #     image: node:18-alpine
+# #     script:
+# #         - echo "Testing with environment variables..."
+# #         - cd server
+# #         - npm test
+# #     dependencies:
+# #         - install
+
+# build:
+#     stage: build
+#     image: node:18-alpine
+#     script:
+#         - echo "Building..."
+#         - cd server
+#         - npm run build
+#         - cd ../client
+#         - npm run build
+#     dependencies:
+#         - install   
+#     artifacts:
+#         paths:
+#             - server/dist
+#             - client/dist
+# dockerbuildpush:
+#   stage: dockerbuildpush
+#   image: docker:20.10.7
+#   services:
+#     - docker:20.10.7-dind
+#   before_script:
+#     - export DOCKER_HOST=tcp://docker:2375
+#     - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USER" --password-stdin
+#   script:
+#     - docker build -t $DOCKER_IMAGE_BACK:latest ./server
+#     - docker build --build-arg VITE_BASEURL=$VITE_BASEURL -t $DOCKER_IMAGE_FRONT:latest ./client
+#     - docker push $DOCKER_IMAGE_BACK:latest
+#     - docker push $DOCKER_IMAGE_FRONT:latest
+# deploy:
+#     stage: deploy
+#     image: alpine/curl:latest
+#     script:
+#         - echo "Deploying..."
+#         - curl --location --request POST $VITE_BASEURL/api/auth/verify
